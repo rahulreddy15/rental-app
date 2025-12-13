@@ -1,43 +1,62 @@
 package handler
 
 import (
-	"net/http"
-	"time"
+	"strconv"
 
 	"backend/internal/model"
+	"backend/internal/service"
 	"backend/pkg/response"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
-// In-memory store for demo purposes
-// Replace with your database layer
-var users = make(map[string]*model.User)
+type UserHandler struct {
+	userService service.UserService
+}
 
-// ListUsersResponse represents paginated user list
+func NewUserHandler(userService service.UserService) *UserHandler {
+	return &UserHandler{userService: userService}
+}
+
 type ListUsersResponse struct {
-	Users []model.User `json:"users"`
-	Total int          `json:"total"`
+	Users  []model.User `json:"users"`
+	Total  int64        `json:"total"`
+	Limit  int          `json:"limit"`
+	Offset int          `json:"offset"`
 }
 
 // ListUsers godoc
 // @Summary List all users
-// @Description Get a list of all users
+// @Description Get a paginated list of all users
 // @Tags users
 // @Accept json
 // @Produce json
+// @Param limit query int false "Limit" default(20)
+// @Param offset query int false "Offset" default(0)
 // @Success 200 {object} response.Response{data=ListUsersResponse}
 // @Router /users [get]
-func ListUsers(c echo.Context) error {
-	userList := make([]model.User, 0, len(users))
-	for _, u := range users {
-		userList = append(userList, *u)
+func (h *UserHandler) ListUsers(c echo.Context) error {
+	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	offset, _ := strconv.Atoi(c.QueryParam("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	users, total, err := h.userService.List(c.Request().Context(), limit, offset)
+	if err != nil {
+		return response.FromError(c, err)
 	}
 
 	return response.Success(c, ListUsersResponse{
-		Users: userList,
-		Total: len(userList),
+		Users:  users,
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
 	})
 }
 
@@ -50,31 +69,27 @@ func ListUsers(c echo.Context) error {
 // @Param user body model.CreateUserRequest true "User details"
 // @Success 201 {object} response.Response{data=model.User}
 // @Failure 400 {object} response.ErrorResponse
+// @Failure 409 {object} response.ErrorResponse
 // @Router /users [post]
-func CreateUser(c echo.Context) error {
+func (h *UserHandler) CreateUser(c echo.Context) error {
 	req := new(model.CreateUserRequest)
 
-	// Bind request body
 	if err := c.Bind(req); err != nil {
 		return response.BadRequest(c, "Invalid request body", nil)
 	}
 
-	// Validate request
 	if err := c.Validate(req); err != nil {
-		return err // Validator already returns proper HTTP error
+		return err
 	}
 
-	// Create user
-	user := &model.User{
-		ID:        uuid.New().String(),
-		Name:      req.Name,
-		Email:     req.Email,
-		Role:      req.Role,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+	user, err := h.userService.Create(c.Request().Context(), service.CreateUserInput{
+		Name:  req.Name,
+		Email: req.Email,
+		Role:  req.Role,
+	})
+	if err != nil {
+		return response.FromError(c, err)
 	}
-
-	users[user.ID] = user
 
 	return response.Created(c, user)
 }
@@ -89,12 +104,15 @@ func CreateUser(c echo.Context) error {
 // @Success 200 {object} response.Response{data=model.User}
 // @Failure 404 {object} response.ErrorResponse
 // @Router /users/{id} [get]
-func GetUser(c echo.Context) error {
-	id := c.Param("id")
+func (h *UserHandler) GetUser(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.BadRequest(c, "Invalid user ID format", nil)
+	}
 
-	user, exists := users[id]
-	if !exists {
-		return response.NotFound(c, "User not found")
+	user, err := h.userService.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return response.FromError(c, err)
 	}
 
 	return response.Success(c, user)
@@ -112,16 +130,13 @@ func GetUser(c echo.Context) error {
 // @Failure 400 {object} response.ErrorResponse
 // @Failure 404 {object} response.ErrorResponse
 // @Router /users/{id} [put]
-func UpdateUser(c echo.Context) error {
-	id := c.Param("id")
-
-	user, exists := users[id]
-	if !exists {
-		return response.NotFound(c, "User not found")
+func (h *UserHandler) UpdateUser(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.BadRequest(c, "Invalid user ID format", nil)
 	}
 
 	req := new(model.UpdateUserRequest)
-
 	if err := c.Bind(req); err != nil {
 		return response.BadRequest(c, "Invalid request body", nil)
 	}
@@ -130,14 +145,18 @@ func UpdateUser(c echo.Context) error {
 		return err
 	}
 
-	// Update fields if provided
+	input := service.UpdateUserInput{}
 	if req.Name != "" {
-		user.Name = req.Name
+		input.Name = &req.Name
 	}
 	if req.Role != "" {
-		user.Role = req.Role
+		input.Role = &req.Role
 	}
-	user.UpdatedAt = time.Now()
+
+	user, err := h.userService.Update(c.Request().Context(), id, input)
+	if err != nil {
+		return response.FromError(c, err)
+	}
 
 	return response.Success(c, user)
 }
@@ -152,17 +171,15 @@ func UpdateUser(c echo.Context) error {
 // @Success 204 "No Content"
 // @Failure 404 {object} response.ErrorResponse
 // @Router /users/{id} [delete]
-func DeleteUser(c echo.Context) error {
-	id := c.Param("id")
-
-	if _, exists := users[id]; !exists {
-		return c.JSON(http.StatusNotFound, response.ErrorResponse{
-			Success: false,
-			Error:   "User not found",
-		})
+func (h *UserHandler) DeleteUser(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.BadRequest(c, "Invalid user ID format", nil)
 	}
 
-	delete(users, id)
+	if err := h.userService.Delete(c.Request().Context(), id); err != nil {
+		return response.FromError(c, err)
+	}
 
 	return response.NoContent(c)
 }

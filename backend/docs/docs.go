@@ -61,7 +61,7 @@ const docTemplate = `{
         },
         "/users": {
             "get": {
-                "description": "Get a list of all users",
+                "description": "Get a paginated list of all users",
                 "consumes": [
                     "application/json"
                 ],
@@ -72,6 +72,22 @@ const docTemplate = `{
                     "users"
                 ],
                 "summary": "List all users",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Limit",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -137,6 +153,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/response.ErrorResponse"
                         }
@@ -303,6 +325,12 @@ const docTemplate = `{
         "handler.ListUsersResponse": {
             "type": "object",
             "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
                 "total": {
                     "type": "integer"
                 },
@@ -384,6 +412,9 @@ const docTemplate = `{
         "response.ErrorResponse": {
             "type": "object",
             "properties": {
+                "code": {
+                    "type": "string"
+                },
                 "details": {},
                 "error": {
                     "type": "string"
@@ -421,8 +452,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "localhost:8080",
 	BasePath:         "/api/v1",
 	Schemes:          []string{},
-	Title:            "Echo API Starter",
-	Description:      "A production-ready Echo API starter template",
+	Title:            "Rental Property Management API",
+	Description:      "API for managing rental properties in India",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

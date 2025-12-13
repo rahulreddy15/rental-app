@@ -1,21 +1,30 @@
 package handler
 
 import (
+	"backend/internal/service"
+
 	"github.com/labstack/echo/v4"
 )
 
-// RegisterRoutes registers all API routes
-func RegisterRoutes(g *echo.Group) {
-	// Health check
+type Handlers struct {
+	User *UserHandler
+}
+
+func NewHandlers(services *service.Services) *Handlers {
+	return &Handlers{
+		User: NewUserHandler(services.User),
+	}
+}
+
+func RegisterRoutes(g *echo.Group, handlers *Handlers) {
 	g.GET("/health", HealthCheck)
 
-	// User routes
 	users := g.Group("/users")
 	{
-		users.GET("", ListUsers)
-		users.POST("", CreateUser)
-		users.GET("/:id", GetUser)
-		users.PUT("/:id", UpdateUser)
-		users.DELETE("/:id", DeleteUser)
+		users.GET("", handlers.User.ListUsers)
+		users.POST("", handlers.User.CreateUser)
+		users.GET("/:id", handlers.User.GetUser)
+		users.PUT("/:id", handlers.User.UpdateUser)
+		users.DELETE("/:id", handlers.User.DeleteUser)
 	}
 }
